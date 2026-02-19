@@ -26,6 +26,7 @@ interface Task {
   type: string;
   status: string;
   approvalPrompt?: string;
+  requiresApproval?: boolean;
   input: any;
   output?: any;
   createdAt: string;
