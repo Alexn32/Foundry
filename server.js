@@ -7,7 +7,7 @@ require('dotenv').config();
 
 // Validate API key
 if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('❌ ANTHROPIC_API_KEY required');
+  console.error('ANTHROPIC_API_KEY required');
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// In-memory storage (use DB in production)
+// In-memory storage
 const storage = {
   messages: [],
   tasks: [],
@@ -25,15 +25,14 @@ const storage = {
 
 // Register CORS
 fastify.register(cors, { 
-  origin: ['https://foundry-nine-pi.vercel.app', 'http://localhost:3000'],
+  origin: true,
   credentials: true
 });
 
-// Health check
-fastify.get('/health', async () => ({ 
-  status: 'ok', 
-  timestamp: new Date().toISOString() 
-}));
+// Health check - MUST return 200
+fastify.get('/health', async () => {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+});
 
 // Get workspace data
 fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
@@ -54,7 +53,7 @@ fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
 // Get messages
 fastify.get('/api/chat', async () => ({ messages: storage.messages }));
 
-// Discover competitors using Claude
+// Discover competitors
 fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request, reply) => {
   const { workspaceId } = request.params;
   const { productDescription } = request.body;
@@ -98,7 +97,7 @@ fastify.post('/api/tasks/:taskId/approve', async (request, reply) => {
       max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `List 5 competitors for this product: "${task.input.productDescription}". Return JSON array with name, website, description.`
+        content: `List 5 competitors for: "${task.input.productDescription}". Return JSON array with name, website, description.`
       }]
     });
     
@@ -149,5 +148,5 @@ fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
     console.error(err);
     process.exit(1);
   }
-  console.log(`🚀 Foundry API running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
