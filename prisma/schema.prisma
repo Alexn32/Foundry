@@ -7,19 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Core: Founder Workspace - completely isolated per founder
 model Workspace {
   id          String   @id @default(uuid())
   name        String   @default("My Startup")
-  ownerId     String   @unique // One workspace per founder
+  ownerId     String   @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
-  // Relations
   profile     FounderProfile?
   onboarding  OnboardingState?
   competitors Competitor[]
-  analyses    Analysis[]
   tasks       Task[]
   alerts      Alert[]
   agentOutputs AgentOutput[]
@@ -29,99 +26,80 @@ model Workspace {
   @@map("workspaces")
 }
 
-// Founder Profile - The Business Brain
 model FounderProfile {
   id          String   @id @default(uuid())
   workspaceId String   @unique
   
-  // Core Business Info (from onboarding)
-  stage              String?  // idea, building, early_users, revenue, scaling
+  stage              String?
   productDescription String?  @db.Text
   problemSolved      String?  @db.Text
   idealCustomer      String?  @db.Text
   revenueModel       String?  @db.Text
-  competitors        Json?    // Array of competitor info
+  competitors        Json?
   budgetSituation    String?  @db.Text
   runwayMonths       Int?
   goal90Day          String?  @db.Text
   biggestConcern     String?  @db.Text
   
-  // Structured extracted data
-  extractedData      Json?    // Rich structured data from onboarding
-  confirmedSummary   Json?    // Final confirmed business summary
+  extractedData      Json?
+  confirmedSummary   Json?
   
-  // Profile status
-  status             String   @default("incomplete") // incomplete, active, archived
+  status             String   @default("incomplete")
   onboardingComplete Boolean  @default(false)
   confirmedAt        DateTime?
   
-  // Relations
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
-  // Timestamps
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   
   @@map("founder_profiles")
 }
 
-// Onboarding State - Tracks conversation progress
 model OnboardingState {
-  id              String   @id @default(uuid())
-  workspaceId     String   @unique
+  id          String   @id @default(uuid())
+  workspaceId String   @unique
   
-  // Progress tracking
-  status          String   @default("in_progress") // in_progress, awaiting_confirmation, completed
+  status          String   @default("in_progress")
   currentQuestion String   @default("stage")
   
-  // Raw conversation data
-  answers         Json     // All Q&A with follow-ups
-  extractedInfo   Json     // Structured data extracted
-  uploadedFiles   Json     // Files uploaded during onboarding
-  corrections     Json?    // Corrections made to summary
-  additionalInfo  Json?    // Extra info added
+  answers         Json
+  extractedInfo   Json
+  uploadedFiles   Json
+  corrections     Json?
+  additionalInfo  Json?
   
-  // Summary
   generatedSummary String? @db.Text
   summaryData      Json?
   
-  // Timestamps
   startedAt        DateTime @default(now())
   lastMessageAt    DateTime @default(now())
   completedAt      DateTime?
   
-  // Relations
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   @@map("onboarding_states")
 }
 
-// Competitor Intelligence
 model Competitor {
-  id           String   @id @default(uuid())
-  workspaceId  String
+  id          String   @id @default(uuid())
+  workspaceId String
   
-  // Basic info
   name         String
   website      String
   description  String?  @db.Text
   
-  // Analysis
-  threatLevel  String?  @default("medium") // low, medium, high
-  pricing      Json?    // Pricing model and tiers
-  features     Json?    // Feature comparison
+  threatLevel  String?  @default("medium")
+  pricing      Json?
+  features     Json?
   positioning  String?  @db.Text
   strengths    String[] @default([])
   weaknesses   String[] @default([])
   
-  // Monitoring
   lastChecked  DateTime @default(now())
-  checkFrequency String @default("weekly") // daily, weekly, monthly
+  checkFrequency String @default("weekly")
   
-  // Relations
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  analyses     Analysis[]
-  alerts       Alert[]
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -130,67 +108,29 @@ model Competitor {
   @@map("competitors")
 }
 
-// Analysis (Competitor deep dives, market analysis, etc.)
-model Analysis {
-  id            String   @id @default(uuid())
-  workspaceId   String
-  competitorId  String?
-  
-  // Analysis details
-  type          String   // competitor_deep_dive, market_trend, positioning, etc.
-  status        String   @default("pending") // pending, in_progress, completed, failed
-  
-  // Content
-  findings      Json?    // Structured analysis results
-  summary       String?  @db.Text
-  recommendations String[] @default([])
-  rawOutput     String?  @db.Text
-  
-  // Approval workflow
-  requiresApproval Boolean @default(true)
-  approvedAt     DateTime?
-  approvedBy     String?
-  
-  // Relations
-  workspace      Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  competitor     Competitor? @relation(fields: [competitorId], references: [id])
-  
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  
-  @@index([workspaceId])
-  @@map("analyses")
-}
-
-// Tasks (Agent work items)
 model Task {
   id          String   @id @default(uuid())
   workspaceId String
-  agentId     String   // Which agent owns this
+  agentId     String
   
-  // Task details
-  type        String   // discover_competitors, analyze_competitor, generate_code, etc.
-  status      String   @default("pending") // pending, approved, in_progress, completed, failed
-  priority    String   @default("medium") // low, medium, high, urgent
+  type        String
+  status      String   @default("pending")
+  priority    String   @default("medium")
   
-  // Content
   title       String
   description String?  @db.Text
-  input       Json?    // What the agent needs
-  output      Json?    // What the agent produced
+  input       Json?
+  output      Json?
   
-  // Approval workflow
   requiresApproval Boolean @default(true)
-  approvalPrompt   String?  @db.Text // What to ask the founder
+  approvalPrompt   String?  @db.Text
   approvedAt       DateTime?
   approvedBy       String?
   
-  // Timing
   startedAt   DateTime?
   completedAt DateTime?
   dueDate     DateTime?
   
-  // Relations
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   createdAt   DateTime  @default(now())
@@ -201,124 +141,72 @@ model Task {
   @@map("tasks")
 }
 
-// Alerts (Market changes, competitor moves)
 model Alert {
-  id            String   @id @default(uuid())
-  workspaceId   String
-  competitorId  String?
+  id          String   @id @default(uuid())
+  workspaceId String
   
-  // Alert details
-  type          String   // pricing_change, feature_launch, funding_news, etc.
-  severity      String   // low, medium, high, critical
+  type          String
+  severity      String
   
-  // Content
   title         String
   description   String   @db.Text
-  changes       Json?    // What changed specifically
-  sourceUrl     String?
+  changes       Json?
   
-  // Actions
   read          Boolean  @default(false)
   readAt        DateTime?
   actioned      Boolean  @default(false)
   actionTaken   String?  @db.Text
   
-  // Relations
-  workspace     Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  competitor    Competitor? @relation(fields: [competitorId], references: [id])
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
-  createdAt     DateTime   @default(now())
+  createdAt     DateTime @default(now())
   
   @@index([workspaceId, read])
-  @@index([severity])
   @@map("alerts")
 }
 
-// Agent Outputs (What agents produce - stored for context)
 model AgentOutput {
   id          String   @id @default(uuid())
   workspaceId String
   agentId     String
   
-  // Output details
-  type        String   // competitor_list, analysis, code, marketing_copy, etc.
-  content     Json     // Structured output
+  type        String
+  content     Json
   rawContent  String?  @db.Text
   
-  // Metadata
-  taskId      String?  // If generated from a task
+  taskId      String?
   tags        String[] @default([])
+  usedByAgents String[] @default([])
   
-  // Usage
-  usedByAgents String[] @default([]) // Which agents have used this as context
-  
-  // Relations
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   
   @@index([workspaceId, agentId])
-  @@index([type])
   @@map("agent_outputs")
 }
 
-// File Uploads
 model File {
   id          String   @id @default(uuid())
   workspaceId String
   
-  // File details
   name        String
-  type        String   // MIME type
-  size        Int      // Bytes
-  category    String   // pitch_deck, business_plan, market_research, etc.
+  type        String
+  size        Int
+  category    String
   
-  // Storage
-  storagePath String?  // Path in S3/blob storage
-  url         String?  // Public URL if applicable
+  storagePath String?
+  url         String?
   
-  // Processing
   processed   Boolean  @default(false)
   processedAt DateTime?
-  extractedText String? @db.Text // OCR or parsed content
+  extractedText String? @db.Text
   
-  // Relations
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   
   createdAt   DateTime  @default(now())
   
   @@index([workspaceId, category])
   @@map("files")
-}
-
-// Conversations (Chat history)
-model Conversation {
-  id          String   @id @default(uuid())
-  workspaceId String
-  
-  // Message details
-  role        String   // user, assistant, system
-  agentId     String?  // Which agent (if assistant)
-  content     String   @db.Text
-  
-  // Context
-  metadata    Json?    // { taskId, analysisId, alertId, etc. }
-  
-  // Timestamps
-  createdAt   DateTime @default(now())
-  
-  @@index([workspaceId, createdAt])
-  @@map("conversations")
-}
-
-// System Configuration (Feature flags, etc.)
-model SystemConfig {
-  id    String @id @default(uuid())
-  key   String @unique
-  value Json
-  
-  updatedAt DateTime @updatedAt
-  
-  @@map("system_config")
 }

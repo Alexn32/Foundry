@@ -1,6 +1,10 @@
 [build]
 builder = "nixpacks"
 
+[build.env]
+NODE_VERSION = "20.19.0"
+NIXPACKS_NODE_VERSION = "20.19.0"
+
 [deploy]
 startCommand = "node server.js"
 healthcheckPath = "/health"
