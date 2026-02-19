@@ -1,258 +1,269 @@
 const fastify = require('fastify')({ logger: true });
 const cors = require('@fastify/cors');
 const websocket = require('@fastify/websocket');
-const { PrismaClient } = require('@prisma/client');
-const { Queue } = require('bullmq');
-const IORedis = require('ioredis');
 const OpenAI = require('openai');
 
-const prisma = new PrismaClient();
+// Check for OpenAI API key
+if (!process.env.OPENAI_API_KEY) {
+  console.error('❌ OPENAI_API_KEY not set!');
+  process.exit(1);
+}
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Redis connection for BullMQ
-const redis = new IORedis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-});
+// In-memory storage (replace with PostgreSQL in production)
+const storage = {
+  messages: [],
+  tasks: [],
+  competitors: [],
+  analyses: [],
+  alerts: [],
+  workspaces: [{ id: 'demo-workspace', name: 'Demo Workspace', ownerId: 'founder-1', createdAt: new Date() }]
+};
 
-// Task queue
-const taskQueue = new Queue('agent-tasks', { connection: redis });
-
-// Connected WebSocket clients (founder dashboards)
+// Connected WebSocket clients
 const clients = new Set();
 
 // Register plugins
-fastify.register(cors, { origin: true });
+fastify.register(cors, { 
+  origin: ['https://foundry-nine-pi.vercel.app', 'https://*.vercel.app', 'http://localhost:3000'],
+  credentials: true
+});
 fastify.register(websocket);
 
-// Competitor Intelligence Agent Logic
+// Health check
+fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// Competitor Intelligence Agent
 const CompetitorIntelligenceAgent = {
   async discoverCompetitors(workspaceId, productDescription) {
-    // Use OpenAI to identify potential competitors
     const prompt = `Given this product description: "${productDescription}"
     
 Identify the top 10 most relevant competitors. For each, provide:
 1. Company name
-2. Website URL
-3. One-sentence description of what they do
-4. Their pricing model (if known)
-5. Their key differentiator
+2. Website URL  
+3. One-sentence description
+4. Pricing model (if known)
+5. Key differentiator
 
-Format as JSON array: [{"name": "...", "website": "...", "description": "...", "pricing": "...", "differentiator": "..."}]`;
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        { role: 'system', content: 'You are a competitive intelligence expert. Always respond with valid JSON.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-    });
+Respond ONLY with valid JSON array.`;
 
     try {
-      const competitors = JSON.parse(completion.choices[0].message.content);
-      return competitors;
-    } catch (e) {
-      // If JSON parsing fails, extract competitors manually
-      return this.parseCompetitorResponse(completion.choices[0].message.content);
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini', // Faster, cheaper
+        messages: [
+          { role: 'system', content: 'You are a competitive intelligence expert. Respond with valid JSON only.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      });
+
+      const content = completion.choices[0].message.content;
+      
+      // Try to parse JSON
+      try {
+        const competitors = JSON.parse(content);
+        return competitors.slice(0, 10); // Max 10
+      } catch (e) {
+        // If JSON fails, extract competitors manually
+        return this.parseCompetitorsFromText(content);
+      }
+    } catch (error) {
+      console.error('OpenAI error:', error);
+      throw new Error('Failed to discover competitors');
     }
   },
 
-  async analyzeCompetitor(competitorId) {
-    const competitor = await prisma.competitor.findUnique({
-      where: { id: competitorId }
-    });
-
-    if (!competitor) throw new Error('Competitor not found');
-
-    // In production, this would scrape the website
-    // For MVP, use OpenAI to analyze based on known info
-    const prompt = `Analyze this competitor:
-Name: ${competitor.name}
-Website: ${competitor.website}
-Description: ${competitor.description || 'N/A'}
-
-Provide a comprehensive analysis including:
-1. Target customer segment
-2. Key features and capabilities
-3. Pricing strategy analysis
-4. Market positioning
-5. Strengths and weaknesses
-6. Threat level (low/medium/high)
-7. Opportunities for differentiation
-
-Format as JSON: {"targetCustomer": "...", "keyFeatures": [...], "pricingStrategy": "...", "positioning": "...", "strengths": [...], "weaknesses": [...], "threatLevel": "...", "opportunities": [...]}`;
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        { role: 'system', content: 'You are a competitive intelligence analyst. Provide detailed, actionable analysis.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-    });
-
-    try {
-      return JSON.parse(completion.choices[0].message.content);
-    } catch (e) {
-      return { raw: completion.choices[0].message.content };
-    }
-  },
-
-  parseCompetitorResponse(content) {
-    // Fallback parsing if JSON fails
-    const lines = content.split('\n').filter(l => l.trim());
+  parseCompetitorsFromText(text) {
     const competitors = [];
+    const lines = text.split('\n').filter(l => l.trim());
     
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.match(/^\d+\./) || line.includes('http')) {
-        const name = line.replace(/^\d+\.\s*/, '').split(' - ')[0].trim();
-        const website = line.match(/https?:\/\/[^\s]+/)?.[0] || '';
-        if (name && website) {
-          competitors.push({ name, website, description: '', pricing: '', differentiator: '' });
-        }
+    for (const line of lines) {
+      // Look for company names and URLs
+      const nameMatch = line.match(/^\d+\.\s*([^-:]+)/);
+      const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+      
+      if (nameMatch) {
+        competitors.push({
+          name: nameMatch[1].trim(),
+          website: urlMatch ? urlMatch[1] : 'https://example.com',
+          description: 'Competitor in your space',
+          pricing: 'Unknown',
+          differentiator: 'To be analyzed'
+        });
       }
     }
     
-    return competitors;
+    return competitors.length > 0 ? competitors : [
+      { name: 'Competitor A', website: 'https://example.com', description: 'Sample competitor', pricing: 'Unknown', differentiator: 'TBD' }
+    ];
   }
 };
 
 // API Routes
 
-// Create task for competitor discovery
+// Get workspace
+fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
+  const { workspaceId } = request.params;
+  const workspace = storage.workspaces.find(w => w.id === workspaceId);
+  
+  if (!workspace) {
+    return reply.status(404).send({ error: 'Workspace not found' });
+  }
+  
+  return {
+    ...workspace,
+    competitors: storage.competitors.filter(c => c.workspaceId === workspaceId),
+    tasks: storage.tasks.filter(t => t.workspaceId === workspaceId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    analyses: storage.analyses.filter(a => a.workspaceId === workspaceId),
+    alerts: storage.alerts.filter(a => a.workspaceId === workspaceId && !a.read)
+  };
+});
+
+// Get messages
+fastify.get('/api/chat', async (request, reply) => {
+  return { messages: storage.messages };
+});
+
+// Discover competitors
 fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request, reply) => {
   const { workspaceId } = request.params;
   const { productDescription } = request.body;
-
-  // Create a task that requires approval
-  const task = await prisma.task.create({
-    data: {
-      workspaceId,
-      agentId: 'competitor-intelligence',
-      type: 'discover_competitors',
-      status: 'pending',
-      input: { productDescription },
-      requiresApproval: true,
-      approvalPrompt: `I'll identify the top 10 competitors for: "${productDescription}". Ready to analyze the competitive landscape?`,
-    }
-  });
-
-  // Broadcast to connected clients
+  
+  if (!productDescription) {
+    return reply.status(400).send({ error: 'Product description required' });
+  }
+  
+  // Create user message
+  const userMessage = {
+    id: Date.now().toString(),
+    role: 'user',
+    content: productDescription,
+    timestamp: new Date().toISOString(),
+  };
+  storage.messages.push(userMessage);
+  
+  // Create task
+  const task = {
+    id: `task-${Date.now()}`,
+    workspaceId,
+    agentId: 'competitor-intelligence',
+    type: 'discover_competitors',
+    status: 'pending',
+    input: { productDescription },
+    requiresApproval: true,
+    approvalPrompt: `I'll identify the top 10 competitors for: "${productDescription}". Ready to analyze the competitive landscape?`,
+    createdAt: new Date().toISOString(),
+  };
+  storage.tasks.push(task);
+  
+  // Broadcast to clients
   clients.forEach(client => {
     if (client.readyState === 1) {
-      client.send(JSON.stringify({
-        type: 'task_created',
-        data: task
-      }));
+      client.send(JSON.stringify({ type: 'task_created', data: task }));
     }
   });
-
-  return { taskId: task.id, message: 'Task created, awaiting approval' };
+  
+  return { taskId: task.id, message: userMessage };
 });
 
-// Approve task and execute
+// Approve task
 fastify.post('/api/tasks/:taskId/approve', async (request, reply) => {
   const { taskId } = request.params;
   const { userId } = request.body;
-
-  const task = await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      status: 'in_progress',
-      approvedAt: new Date(),
-      approvedBy: userId,
-    }
-  });
-
-  // Execute based on task type
+  
+  const task = storage.tasks.find(t => t.id === taskId);
+  if (!task) {
+    return reply.status(404).send({ error: 'Task not found' });
+  }
+  
+  task.status = 'in_progress';
+  task.approvedAt = new Date().toISOString();
+  task.approvedBy = userId;
+  
+  // Execute task
   if (task.type === 'discover_competitors') {
-    const competitors = await CompetitorIntelligenceAgent.discoverCompetitors(
-      task.workspaceId,
-      task.input.productDescription
-    );
-
-    // Store discovered competitors
-    for (const comp of competitors) {
-      await prisma.competitor.create({
-        data: {
+    try {
+      const competitors = await CompetitorIntelligenceAgent.discoverCompetitors(
+        task.workspaceId,
+        task.input.productDescription
+      );
+      
+      // Store competitors
+      for (const comp of competitors) {
+        const competitor = {
+          id: `comp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           workspaceId: task.workspaceId,
           name: comp.name,
-          website: comp.website,
-          description: comp.description,
-          pricing: comp.pricing ? { model: comp.pricing } : null,
+          website: comp.website || 'https://example.com',
+          description: comp.description || 'Competitor in your market',
+          threatLevel: 'medium', // Default
+          createdAt: new Date().toISOString(),
+        };
+        storage.competitors.push(competitor);
+      }
+      
+      // Mark task complete
+      task.status = 'completed';
+      task.output = { competitorsDiscovered: competitors.length };
+      
+      // Add AI response message
+      const aiMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        agentId: 'competitor-intelligence',
+        content: `I discovered ${competitors.length} competitors for your product. Check the dashboard to see the full list and their details.`,
+        timestamp: new Date().toISOString(),
+      };
+      storage.messages.push(aiMessage);
+      
+      // Broadcast
+      clients.forEach(client => {
+        if (client.readyState === 1) {
+          client.send(JSON.stringify({ 
+            type: 'competitors_discovered', 
+            data: { taskId, competitors, message: aiMessage } 
+          }));
         }
       });
+      
+      return { success: true, competitorsDiscovered: competitors.length };
+      
+    } catch (error) {
+      task.status = 'failed';
+      task.output = { error: error.message };
+      return reply.status(500).send({ error: error.message });
     }
-
-    // Create analysis task for each competitor
-    for (const comp of competitors.slice(0, 3)) { // Analyze top 3
-      await prisma.task.create({
-        data: {
-          workspaceId: task.workspaceId,
-          agentId: 'competitor-intelligence',
-          type: 'analyze_competitor',
-          status: 'pending',
-          input: { competitorName: comp.name },
-          requiresApproval: true,
-          approvalPrompt: `Should I perform deep analysis on ${comp.name}?`,
-        }
-      });
-    }
-
-    // Mark task complete
-    await prisma.task.update({
-      where: { id: taskId },
-      data: { 
-        status: 'completed',
-        output: { competitorsDiscovered: competitors.length }
-      }
-    });
-
-    // Broadcast results
-    clients.forEach(client => {
-      if (client.readyState === 1) {
-        client.send(JSON.stringify({
-          type: 'competitors_discovered',
-          data: { taskId, competitors }
-        }));
-      }
-    });
-
-    return { success: true, competitorsDiscovered: competitors.length };
   }
-
+  
   return { success: true };
 });
 
-// Get workspace data
-fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
-  const { workspaceId } = request.params;
-
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    include: {
-      competitors: true,
-      tasks: {
-        orderBy: { createdAt: 'desc' },
-        take: 20
-      },
-      analyses: {
-        orderBy: { createdAt: 'desc' },
-        take: 10
-      },
-      alerts: {
-        where: { read: false },
-        orderBy: { createdAt: 'desc' }
-      }
+// Clyde responds
+fastify.post('/api/respond', async (request, reply) => {
+  const { content } = request.body;
+  
+  const message = {
+    id: Date.now().toString(),
+    role: 'assistant',
+    agentId: 'clyde',
+    content,
+    timestamp: new Date().toISOString(),
+  };
+  
+  storage.messages.push(message);
+  
+  clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({ type: 'message', data: message }));
     }
   });
-
-  return workspace;
+  
+  return { success: true, message };
 });
 
-// WebSocket for real-time updates
+// WebSocket
 fastify.register(async function (fastify) {
   fastify.get('/ws', { websocket: true }, (connection, req) => {
     clients.add(connection.socket);
@@ -260,16 +271,14 @@ fastify.register(async function (fastify) {
     connection.socket.on('message', async (message) => {
       try {
         const data = JSON.parse(message);
-        
         if (data.type === 'subscribe' && data.workspaceId) {
-          // Subscribe to workspace updates
           connection.socket.workspaceId = data.workspaceId;
         }
       } catch (e) {
         console.error('WebSocket message error:', e);
       }
     });
-
+    
     connection.socket.on('close', () => {
       clients.delete(connection.socket);
     });
@@ -277,14 +286,11 @@ fastify.register(async function (fastify) {
 });
 
 // Start server
-const start = async () => {
-  try {
-    await fastify.listen({ port: 3001, host: '0.0.0.0' });
-    console.log('🚀 Foundry backend running on http://localhost:3001');
-  } catch (err) {
-    fastify.log.error(err);
+const PORT = process.env.PORT || 3001;
+fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
+  if (err) {
+    console.error(err);
     process.exit(1);
   }
-};
-
-start();
+  console.log(`🚀 Foundry backend running on port ${PORT}`);
+});
