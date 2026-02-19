@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Target, 
   Code, 
@@ -16,7 +16,10 @@ import {
   Shield,
   BarChart3,
   Bell,
-  Settings
+  Settings,
+  Menu,
+  X,
+  Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,11 +44,11 @@ interface Competitor {
 }
 
 const agents = [
-  { id: 'competitor-intelligence', name: 'Competitor Intelligence', icon: <Target className="w-5 h-5" />, color: 'bg-red-500', description: 'Monitors competitors & market' },
-  { id: 'code', name: 'Code Agent', icon: <Code className="w-5 h-5" />, color: 'bg-blue-500', description: 'Builds your product' },
-  { id: 'marketing', name: 'Marketing Agent', icon: <TrendingUp className="w-5 h-5" />, color: 'bg-emerald-500', description: 'Drives growth & revenue' },
-  { id: 'cfo', name: 'CFO Agent', icon: <DollarSign className="w-5 h-5" />, color: 'bg-amber-500', description: 'Tracks finances & runway' },
-  { id: 'outreach', name: 'Outreach Agent', icon: <Users className="w-5 h-5" />, color: 'bg-purple-500', description: 'Handles partnerships' },
+  { id: 'competitor-intelligence', name: 'Competitor Intel', icon: <Target className="w-5 h-5" />, color: 'bg-red-500', description: 'Monitors market' },
+  { id: 'code', name: 'Code Agent', icon: <Code className="w-5 h-5" />, color: 'bg-blue-500', description: 'Builds product' },
+  { id: 'marketing', name: 'Marketing', icon: <TrendingUp className="w-5 h-5" />, color: 'bg-emerald-500', description: 'Drives growth' },
+  { id: 'cfo', name: 'CFO Agent', icon: <DollarSign className="w-5 h-5" />, color: 'bg-amber-500', description: 'Tracks finances' },
+  { id: 'outreach', name: 'Outreach', icon: <Users className="w-5 h-5" />, color: 'bg-purple-500', description: 'Partnerships' },
 ];
 
 export default function FoundryDashboard() {
@@ -54,6 +57,8 @@ export default function FoundryDashboard() {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [wsConnected, setWsConnected] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const workspaceId = 'demo-workspace';
 
   useEffect(() => {
@@ -89,39 +94,67 @@ export default function FoundryDashboard() {
 
   return (
     <div className="flex h-screen bg-[#0a0a0f] text-zinc-100 overflow-hidden">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden" 
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* LEFT SIDEBAR */}
-      <div className="w-72 bg-zinc-950 border-r border-zinc-800 flex flex-col">
-        <div className="p-4 border-b border-zinc-800">
+      <div className={cn(
+        "fixed lg:static inset-y-0 left-0 z-50 w-72 bg-zinc-950 border-r border-zinc-800 flex flex-col transition-transform duration-300 lg:translate-x-0",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        {/* Header */}
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center text-xl shadow-lg shadow-indigo-500/20">🎯</div>
             <div>
               <h1 className="font-bold text-lg tracking-tight">Foundry</h1>
-              <p className="text-xs text-zinc-500">AI Co-Founder Platform</p>
+              <p className="text-xs text-zinc-500">AI Co-Founder</p>
             </div>
           </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-2 text-zinc-400 hover:text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className={cn("px-4 py-2 flex items-center gap-2 text-xs border-b border-zinc-800", wsConnected ? "text-emerald-500" : "text-amber-500")}>
+        {/* Connection Status */}
+        <div className={cn(
+          "px-4 py-2 flex items-center gap-2 text-xs border-b border-zinc-800",
+          wsConnected ? "text-emerald-500" : "text-amber-500"
+        )}>
           <div className={cn("w-2 h-2 rounded-full", wsConnected ? "bg-emerald-500" : "bg-amber-500")} />
-          {wsConnected ? "Connected" : "Reconnecting..."}
+          <span className="hidden sm:inline">{wsConnected ? "Connected" : "Reconnecting..."}</span>
+          <span className="sm:hidden">{wsConnected ? "Online" : "..."}</span>
         </div>
 
+        {/* Pending Approvals Badge */}
         {pendingTasks.length > 0 && (
           <div className="mx-4 mt-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
             <div className="flex items-center gap-2 text-amber-500">
               <AlertCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">{pendingTasks.length} pending approval</span>
+              <span className="text-sm font-medium">{pendingTasks.length} pending</span>
             </div>
           </div>
         )}
 
+        {/* Agent List */}
         <div className="flex-1 px-3 py-4 overflow-y-auto">
           <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 px-2">Your Team</p>
           <div className="space-y-1">
             {agents.map((agent) => (
               <button
                 key={agent.id}
-                onClick={() => setActiveAgent(agent)}
+                onClick={() => {
+                  setActiveAgent(agent);
+                  setSidebarOpen(false);
+                }}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all duration-200 group',
                   activeAgent.id === agent.id
@@ -129,21 +162,24 @@ export default function FoundryDashboard() {
                     : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                 )}
               >
-                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", agent.color.replace('bg-', 'bg-opacity-20 bg-'))}>
+                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", agent.color.replace('bg-', 'bg-opacity-20 bg-'))}>
                   {agent.icon}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate">{agent.name}</p>
-                  <p className="text-xs text-zinc-500 truncate">{agent.description}</p>
+                  <p className="text-xs text-zinc-500 truncate hidden sm:block">{agent.description}</p>
                 </div>
                 {agent.id === 'competitor-intelligence' && competitors.length > 0 && (
-                  <span className="px-2 py-0.5 bg-zinc-800 rounded-full text-xs text-zinc-400">{competitors.length}</span>
+                  <span className="px-2 py-0.5 bg-zinc-800 rounded-full text-xs text-zinc-400 shrink-0">
+                    {competitors.length}
+                  </span>
                 )}
               </button>
             ))}
           </div>
         </div>
 
+        {/* Stats */}
         <div className="p-4 border-t border-zinc-800">
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-zinc-900/50 rounded-lg p-2">
@@ -151,7 +187,7 @@ export default function FoundryDashboard() {
               <p className="text-lg font-semibold text-white">{competitors.length}</p>
             </div>
             <div className="bg-zinc-900/50 rounded-lg p-2">
-              <p className="text-zinc-500">Active Tasks</p>
+              <p className="text-zinc-500">Tasks</p>
               <p className="text-lg font-semibold text-white">{tasks.filter(t => t.status === 'in_progress').length}</p>
             </div>
           </div>
@@ -159,8 +195,31 @@ export default function FoundryDashboard() {
       </div>
 
       {/* MIDDLE - Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950/50">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Mobile Header */}
+        <div className="lg:hidden h-14 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950/50">
+          <button 
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 -ml-2 text-zinc-400 hover:text-white"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", activeAgent.color.replace('bg-', 'bg-opacity-20 bg-'))}>
+              {activeAgent.icon}
+            </div>
+            <span className="font-medium text-sm">{activeAgent.name}</span>
+          </div>
+          <button 
+            onClick={() => setActivityOpen(true)}
+            className="p-2 -mr-2 text-zinc-400 hover:text-white"
+          >
+            <Activity className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Desktop Header */}
+        <div className="hidden lg:flex h-16 border-b border-zinc-800 items-center justify-between px-6 bg-zinc-950/50">
           <div className="flex items-center gap-3">
             <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", activeAgent.color.replace('bg-', 'bg-opacity-20 bg-'))}>
               {activeAgent.icon}
@@ -171,51 +230,71 @@ export default function FoundryDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors"><Bell className="w-5 h-5" /></button>
-            <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors"><Settings className="w-5 h-5" /></button>
+            <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Bell className="w-5 h-5" />
+            </button>
+            <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors">
+              <Settings className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 lg:p-6">
           {activeAgent.id === 'competitor-intelligence' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Globe className="w-5 h-5 text-zinc-400" />
-                    <span className="text-sm text-zinc-400">Markets Tracked</span>
+            <div className="space-y-4 lg:space-y-6 max-w-4xl mx-auto">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-2 lg:gap-4">
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 lg:p-4">
+                  <div className="flex items-center gap-2 lg:gap-3 mb-1 lg:mb-2">
+                    <Globe className="w-4 h-4 lg:w-5 lg:h-5 text-zinc-400" />
+                    <span className="text-xs lg:text-sm text-zinc-400">Markets</span>
                   </div>
-                  <p className="text-2xl font-bold">{competitors.length > 0 ? '1' : '0'}</p>
+                  <p className="text-xl lg:text-2xl font-bold">{competitors.length > 0 ? '1' : '0'}</p>
                 </div>
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Shield className="w-5 h-5 text-zinc-400" />
-                    <span className="text-sm text-zinc-400">High Threat</span>
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 lg:p-4">
+                  <div className="flex items-center gap-2 lg:gap-3 mb-1 lg:mb-2">
+                    <Shield className="w-4 h-4 lg:w-5 lg:h-5 text-zinc-400" />
+                    <span className="text-xs lg:text-sm text-zinc-400">Threats</span>
                   </div>
-                  <p className="text-2xl font-bold text-red-500">{competitors.filter(c => c.threatLevel === 'high').length}</p>
+                  <p className="text-xl lg:text-2xl font-bold text-red-500">
+                    {competitors.filter(c => c.threatLevel === 'high').length}
+                  </p>
                 </div>
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    <BarChart3 className="w-5 h-5 text-zinc-400" />
-                    <span className="text-sm text-zinc-400">Analyses</span>
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 lg:p-4">
+                  <div className="flex items-center gap-2 lg:gap-3 mb-1 lg:mb-2">
+                    <BarChart3 className="w-4 h-4 lg:w-5 lg:h-5 text-zinc-400" />
+                    <span className="text-xs lg:text-sm text-zinc-400">Analyses</span>
                   </div>
-                  <p className="text-2xl font-bold">{tasks.filter(t => t.type === 'analyze_competitor' && t.status === 'completed').length}</p>
+                  <p className="text-xl lg:text-2xl font-bold">
+                    {tasks.filter(t => t.type === 'analyze_competitor' && t.status === 'completed').length}
+                  </p>
                 </div>
               </div>
 
+              {/* Pending Approvals */}
               {pendingTasks.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Pending Your Approval</h3>
+                  <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Pending Approval</h3>
                   {pendingTasks.map(task => (
                     <div key={task.id} className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
-                      <div className="flex items-start justify-between">
+                      <div className="flex flex-col gap-3">
                         <div>
-                          <p className="font-medium text-amber-400 mb-1">{task.type === 'discover_competitors' ? '🔍 Discover Competitors' : '📊 Analyze Competitor'}</p>
+                          <p className="font-medium text-amber-400 mb-1 text-sm lg:text-base">
+                            {task.type === 'discover_competitors' ? '🔍 Discover Competitors' : '📊 Analyze Competitor'}
+                          </p>
                           <p className="text-sm text-zinc-300">{task.approvalPrompt}</p>
                         </div>
                         <div className="flex gap-2">
-                          <button onClick={() => approveTask(task.id)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors">Approve</button>
-                          <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors">Modify</button>
+                          <button 
+                            onClick={() => approveTask(task.id)}
+                            className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
+                          >
+                            Approve
+                          </button>
+                          <button className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm transition-colors">
+                            Modify
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -223,21 +302,39 @@ export default function FoundryDashboard() {
                 </div>
               )}
 
+              {/* Competitors List */}
               {competitors.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Tracked Competitors</h3>
                   <div className="space-y-2">
                     {competitors.map(comp => (
-                      <div key={comp.id} className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4 flex items-center justify-between group hover:border-zinc-700 transition-colors">
-                        <div>
-                          <p className="font-medium">{comp.name}</p>
-                          <a href={comp.website} target="_blank" rel="noopener noreferrer" className="text-xs text-zinc-500 hover:text-indigo-400">{comp.website}</a>
+                      <div 
+                        key={comp.id} 
+                        className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-3 lg:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 group hover:border-zinc-700 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm lg:text-base">{comp.name}</p>
+                          <a 
+                            href={comp.website} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-xs text-zinc-500 hover:text-indigo-400 truncate block"
+                          >
+                            {comp.website}
+                          </a>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 shrink-0">
                           {comp.threatLevel && (
-                            <span className={cn("px-2 py-1 rounded text-xs font-medium", comp.threatLevel === 'high' ? "bg-red-500/20 text-red-400" : comp.threatLevel === 'medium' ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400")}>{comp.threatLevel} threat</span>
+                            <span className={cn(
+                              "px-2 py-1 rounded text-xs font-medium",
+                              comp.threatLevel === 'high' ? "bg-red-500/20 text-red-400" :
+                              comp.threatLevel === 'medium' ? "bg-amber-500/20 text-amber-400" :
+                              "bg-emerald-500/20 text-emerald-400"
+                            )}>
+                              {comp.threatLevel}
+                            </span>
                           )}
-                          <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400" />
+                          <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 hidden sm:block" />
                         </div>
                       </div>
                     ))}
@@ -245,50 +342,95 @@ export default function FoundryDashboard() {
                 </div>
               )}
 
-              <div className="relative">
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                  placeholder="Describe your product to discover competitors..."
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 pr-14 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/50"
-                />
-                <button onClick={sendMessage} disabled={!inputValue.trim()} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-lg transition-colors">
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
+              {/* Empty State */}
+              {competitors.length === 0 && pendingTasks.length === 0 && (
+                <div className="text-center py-8 lg:py-12 text-zinc-500">
+                  <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-2xl bg-zinc-900 flex items-center justify-center mx-auto mb-4">
+                    <Target className="w-8 h-8 lg:w-10 lg:h-10" />
+                  </div>
+                  <p className="text-base lg:text-lg mb-2">No competitors tracked yet</p>
+                  <p className="text-sm text-zinc-600">Describe your product below to get started</p>
+                </div>
+              )}
             </div>
           )}
 
           {activeAgent.id !== 'competitor-intelligence' && (
-            <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4">
-              <div className="w-20 h-20 rounded-2xl bg-zinc-900 flex items-center justify-center">{activeAgent.icon}</div>
-              <p className="text-lg">{activeAgent.name} coming soon</p>
-              <p className="text-sm text-zinc-600">Currently building Competitor Intelligence Agent</p>
+            <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-4 py-12">
+              <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-2xl bg-zinc-900 flex items-center justify-center">
+                {activeAgent.icon}
+              </div>
+              <p className="text-lg lg:text-xl">{activeAgent.name} coming soon</p>
+              <p className="text-sm text-zinc-600 text-center px-4">
+                Currently building Competitor Intelligence Agent
+              </p>
             </div>
           )}
         </div>
+
+        {/* Input Area - Fixed at bottom on mobile */}
+        <div className="border-t border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="max-w-4xl mx-auto relative">
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              placeholder="Describe your product to discover competitors..."
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 lg:py-4 pr-12 lg:pr-14 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/50 text-sm lg:text-base"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!inputValue.trim()}
+              className="absolute right-2 lg:right-3 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-lg transition-colors"
+            >
+              <Send className="w-4 h-4 lg:w-5 lg:h-5" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* RIGHT SIDEBAR - Activity */}
-      <div className="w-80 bg-zinc-950 border-l border-zinc-800 flex flex-col">
+      {/* RIGHT SIDEBAR - Activity (Desktop) */}
+      <div className="hidden lg:block w-80 bg-zinc-950 border-l border-zinc-800 flex-col">
         <div className="p-4 border-b border-zinc-800">
-          <h2 className="font-semibold flex items-center gap-2 text-sm"><Clock className="w-4 h-4 text-zinc-400" />Recent Activity</h2>
+          <h2 className="font-semibold flex items-center gap-2 text-sm">
+            <Clock className="w-4 h-4 text-zinc-400" />
+            Recent Activity
+          </h2>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-3">
-            {tasks.length === 0 && <p className="text-sm text-zinc-600 text-center py-8">No activity yet</p>}
+            {tasks.length === 0 && (
+              <p className="text-sm text-zinc-600 text-center py-8">No activity yet</p>
+            )}
             {tasks.slice(0, 10).map(task => (
               <div key={task.id} className="flex gap-3 p-3 rounded-xl bg-zinc-900/30 border border-zinc-800/50">
-                <div className="mt-0.5">
-                  {task.status === 'completed' ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : task.status === 'pending' ? <Clock className="w-4 h-4 text-amber-500" /> : <div className="w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />}
+                <div className="mt-0.5 shrink-0">
+                  {task.status === 'completed' ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  ) : task.status === 'pending' ? (
+                    <Clock className="w-4 h-4 text-amber-500" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-zinc-300">{task.type === 'discover_competitors' ? 'Discovered competitors' : task.type === 'analyze_competitor' ? 'Analyzed competitor' : task.type}</p>
+                  <p className="text-sm text-zinc-300 truncate">
+                    {task.type === 'discover_competitors' ? 'Discovered competitors' :
+                     task.type === 'analyze_competitor' ? 'Analyzed competitor' : task.type}
+                  </p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className={cn("text-xs px-1.5 py-0.5 rounded", task.status === 'completed' ? "bg-emerald-500/20 text-emerald-400" : task.status === 'pending' ? "bg-amber-500/20 text-amber-400" : "bg-indigo-500/20 text-indigo-400")}>{task.status}</span>
-                    <span className="text-xs text-zinc-600">{new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className={cn(
+                      "text-xs px-1.5 py-0.5 rounded",
+                      task.status === 'completed' ? "bg-emerald-500/20 text-emerald-400" :
+                      task.status === 'pending' ? "bg-amber-500/20 text-amber-400" :
+                      "bg-indigo-500/20 text-indigo-400"
+                    )}>
+                      {task.status}
+                    </span>
+                    <span className="text-xs text-zinc-600">
+                      {new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -296,6 +438,66 @@ export default function FoundryDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Mobile Activity Drawer */}
+      {activityOpen && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden" 
+            onClick={() => setActivityOpen(false)}
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-80 bg-zinc-950 border-l border-zinc-800 flex flex-col lg:hidden">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+              <h2 className="font-semibold flex items-center gap-2 text-sm">
+                <Clock className="w-4 h-4 text-zinc-400" />
+                Activity
+              </h2>
+              <button 
+                onClick={() => setActivityOpen(false)}
+                className="p-2 text-zinc-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-3">
+                {tasks.length === 0 && (
+                  <p className="text-sm text-zinc-600 text-center py-8">No activity yet</p>
+                )}
+                {tasks.slice(0, 10).map(task => (
+                  <div key={task.id} className="flex gap-3 p-3 rounded-xl bg-zinc-900/30 border border-zinc-800/50">
+                    <div className="mt-0.5 shrink-0">
+                      {task.status === 'completed' ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      ) : task.status === 'pending' ? (
+                        <Clock className="w-4 h-4 text-amber-500" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-zinc-300">
+                        {task.type === 'discover_competitors' ? 'Discovered competitors' :
+                         task.type === 'analyze_competitor' ? 'Analyzed competitor' : task.type}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={cn(
+                          "text-xs px-1.5 py-0.5 rounded",
+                          task.status === 'completed' ? "bg-emerald-500/20 text-emerald-400" :
+                          task.status === 'pending' ? "bg-amber-500/20 text-amber-400" :
+                          "bg-indigo-500/20 text-indigo-400"
+                        )}>
+                          {task.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
