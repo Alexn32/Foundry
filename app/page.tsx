@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const API_URL = 'https://foundry-production-7b5f.up.railway.app';
 
