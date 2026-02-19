@@ -1,17 +1,20 @@
 const fastify = require('fastify')({ logger: true });
 const cors = require('@fastify/cors');
 const websocket = require('@fastify/websocket');
-const OpenAI = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
 
-// Check for OpenAI API key
-if (!process.env.OPENAI_API_KEY) {
-  console.error('❌ OPENAI_API_KEY not set!');
+// Check for Anthropic API key
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error('❌ ANTHROPIC_API_KEY not set!');
+  console.error('Get yours at: https://console.anthropic.com/settings/keys');
   process.exit(1);
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
 
-// In-memory storage (replace with PostgreSQL in production)
+// In-memory storage
 const storage = {
   messages: [],
   tasks: [],
@@ -21,7 +24,6 @@ const storage = {
   workspaces: [{ id: 'demo-workspace', name: 'Demo Workspace', ownerId: 'founder-1', createdAt: new Date() }]
 };
 
-// Connected WebSocket clients
 const clients = new Set();
 
 // Register plugins
@@ -34,44 +36,61 @@ fastify.register(websocket);
 // Health check
 fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
-// Competitor Intelligence Agent
+// Competitor Intelligence Agent using Claude
 const CompetitorIntelligenceAgent = {
   async discoverCompetitors(workspaceId, productDescription) {
-    const prompt = `Given this product description: "${productDescription}"
-    
+    const prompt = `You are a competitive intelligence expert. Analyze this product and identify competitors.
+
+Product Description: "${productDescription}"
+
 Identify the top 10 most relevant competitors. For each, provide:
 1. Company name
-2. Website URL  
-3. One-sentence description
-4. Pricing model (if known)
-5. Key differentiator
+2. Website URL (must be real, valid URL)
+3. One-sentence description of what they do
+4. Their pricing model (freemium, subscription, one-time, etc.)
+5. Their key differentiator (what makes them unique)
 
-Respond ONLY with valid JSON array.`;
+Respond ONLY with a valid JSON array in this exact format:
+[
+  {
+    "name": "Company Name",
+    "website": "https://company.com",
+    "description": "What they do",
+    "pricing": "Pricing model",
+    "differentiator": "What makes them unique"
+  }
+]`;
 
     try {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini', // Faster, cheaper
-        messages: [
-          { role: 'system', content: 'You are a competitive intelligence expert. Respond with valid JSON only.' },
-          { role: 'user', content: prompt }
-        ],
+      const message = await anthropic.messages.create({
+        model: 'claude-3-sonnet-20240229',
+        max_tokens: 4000,
         temperature: 0.7,
-        max_tokens: 2000,
+        messages: [
+          { role: 'user', content: prompt }
+        ]
       });
 
-      const content = completion.choices[0].message.content;
+      const content = message.content[0].text;
       
-      // Try to parse JSON
+      // Try to extract JSON
       try {
+        // Look for JSON array in response
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const competitors = JSON.parse(jsonMatch[0]);
+          return competitors.slice(0, 10);
+        }
+        // Try parsing entire response
         const competitors = JSON.parse(content);
-        return competitors.slice(0, 10); // Max 10
+        return competitors.slice(0, 10);
       } catch (e) {
-        // If JSON fails, extract competitors manually
+        console.log('JSON parse failed, extracting manually:', e.message);
         return this.parseCompetitorsFromText(content);
       }
     } catch (error) {
-      console.error('OpenAI error:', error);
-      throw new Error('Failed to discover competitors');
+      console.error('Claude API error:', error);
+      throw new Error('Failed to discover competitors: ' + error.message);
     }
   },
 
@@ -79,24 +98,45 @@ Respond ONLY with valid JSON array.`;
     const competitors = [];
     const lines = text.split('\n').filter(l => l.trim());
     
+    let currentCompetitor = {};
+    
     for (const line of lines) {
-      // Look for company names and URLs
-      const nameMatch = line.match(/^\d+\.\s*([^-:]+)/);
-      const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+      const cleanLine = line.trim();
       
-      if (nameMatch) {
-        competitors.push({
+      // Check for company name (often starts with number or bullet)
+      const nameMatch = cleanLine.match(/^(?:\d+[.\)]\s*|[-•]\s*)([^:{\[]+)/i);
+      if (nameMatch && !cleanLine.includes('http')) {
+        if (currentCompetitor.name) {
+          competitors.push({ ...currentCompetitor });
+        }
+        currentCompetitor = {
           name: nameMatch[1].trim(),
-          website: urlMatch ? urlMatch[1] : 'https://example.com',
-          description: 'Competitor in your space',
+          website: 'https://example.com',
+          description: 'Competitor in your market',
           pricing: 'Unknown',
           differentiator: 'To be analyzed'
-        });
+        };
+      }
+      
+      // Extract URL
+      const urlMatch = cleanLine.match(/(https?:\/\/[\w.-]+)/);
+      if (urlMatch && currentCompetitor.name) {
+        currentCompetitor.website = urlMatch[1];
+      }
+      
+      // Extract description
+      if (cleanLine.toLowerCase().includes('description') && cleanLine.includes(':')) {
+        const desc = cleanLine.split(':')[1]?.trim();
+        if (desc) currentCompetitor.description = desc;
       }
     }
     
+    if (currentCompetitor.name) {
+      competitors.push(currentCompetitor);
+    }
+    
     return competitors.length > 0 ? competitors : [
-      { name: 'Competitor A', website: 'https://example.com', description: 'Sample competitor', pricing: 'Unknown', differentiator: 'TBD' }
+      { name: 'Sample Competitor', website: 'https://example.com', description: 'Sample', pricing: 'Unknown', differentiator: 'TBD' }
     ];
   }
 };
@@ -122,9 +162,7 @@ fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
 });
 
 // Get messages
-fastify.get('/api/chat', async (request, reply) => {
-  return { messages: storage.messages };
-});
+fastify.get('/api/chat', async () => ({ messages: storage.messages }));
 
 // Discover competitors
 fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request, reply) => {
@@ -144,7 +182,7 @@ fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request
   };
   storage.messages.push(userMessage);
   
-  // Create task
+  // Create task requiring approval
   const task = {
     id: `task-${Date.now()}`,
     workspaceId,
@@ -153,7 +191,7 @@ fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request
     status: 'pending',
     input: { productDescription },
     requiresApproval: true,
-    approvalPrompt: `I'll identify the top 10 competitors for: "${productDescription}". Ready to analyze the competitive landscape?`,
+    approvalPrompt: `I'll use Claude AI to identify the top 10 competitors for: "${productDescription}". Ready to analyze the competitive landscape?`,
     createdAt: new Date().toISOString(),
   };
   storage.tasks.push(task);
@@ -195,10 +233,12 @@ fastify.post('/api/tasks/:taskId/approve', async (request, reply) => {
         const competitor = {
           id: `comp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           workspaceId: task.workspaceId,
-          name: comp.name,
+          name: comp.name || 'Unknown Competitor',
           website: comp.website || 'https://example.com',
           description: comp.description || 'Competitor in your market',
-          threatLevel: 'medium', // Default
+          pricing: comp.pricing || 'Unknown',
+          differentiator: comp.differentiator || 'To be analyzed',
+          threatLevel: 'medium',
           createdAt: new Date().toISOString(),
         };
         storage.competitors.push(competitor);
@@ -213,12 +253,12 @@ fastify.post('/api/tasks/:taskId/approve', async (request, reply) => {
         id: Date.now().toString(),
         role: 'assistant',
         agentId: 'competitor-intelligence',
-        content: `I discovered ${competitors.length} competitors for your product. Check the dashboard to see the full list and their details.`,
+        content: `I discovered ${competitors.length} competitors using Claude AI. Check the dashboard for the full analysis.`,
         timestamp: new Date().toISOString(),
       };
       storage.messages.push(aiMessage);
       
-      // Broadcast
+      // Broadcast to all clients
       clients.forEach(client => {
         if (client.readyState === 1) {
           client.send(JSON.stringify({ 
@@ -293,4 +333,5 @@ fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
     process.exit(1);
   }
   console.log(`🚀 Foundry backend running on port ${PORT}`);
+  console.log(`🤖 Using Claude (Anthropic) for AI agents`);
 });
