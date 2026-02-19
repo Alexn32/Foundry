@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Workspace {
+  id          String   @id @default(uuid())
+  name        String
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  competitors Competitor[]
+  analyses    Analysis[]
+  tasks       Task[]
+  alerts      Alert[]
+  
+  @@map("workspaces")
+}
+
+model Competitor {
+  id           String   @id @default(uuid())
+  workspaceId  String
+  name         String
+  website      String
+  description  String?
+  pricing      Json?    // { model: "freemium", tiers: [...] }
+  features     Json?    // Feature comparison
+  positioning  String?
+  funding      String?
+  employees    Int?
+  founded      String?
+  
+  // Monitoring
+  lastChecked  DateTime @default(now())
+  checkFrequency String @default("weekly") // daily, weekly, monthly
+  
+  // Relations
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  analyses     Analysis[]
+  alerts       Alert[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@map("competitors")
+}
+
+model Analysis {
+  id            String   @id @default(uuid())
+  workspaceId   String
+  competitorId  String?
+  type          String   // initial, pricing_change, feature_launch, positioning_shift
+  status        String   @default("pending") // pending, approved, rejected, in_progress, completed
+  
+  // Analysis content
+  findings      Json     // Structured analysis data
+  summary       String   @db.Text
+  recommendations String[]
+  
+  // Approval workflow
+  requiresApproval Boolean @default(true)
+  approvedAt     DateTime?
+  approvedBy     String?
+  
+  // Relations
+  workspace      Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  competitor     Competitor? @relation(fields: [competitorId], references: [id])
+  
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  
+  @@map("analyses")
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  workspaceId String
+  agentId     String   // Which agent owns this
+  type        String   // discover_competitors, analyze_competitor, monitor_changes
+  status      String   @default("pending") // pending, approved, in_progress, completed, failed
+  
+  // Task details
+  input       Json     // What the agent needs to do
+  output      Json?    // What the agent produced
+  
+  // Approval workflow
+  requiresApproval Boolean @default(true)
+  approvalPrompt   String?  // What to ask the founder
+  approvedAt       DateTime?
+  approvedBy       String?
+  
+  // Relations
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("tasks")
+}
+
+model Alert {
+  id            String   @id @default(uuid())
+  workspaceId   String
+  competitorId  String?
+  type          String   // pricing_change, feature_launch, funding_news, positioning_shift
+  severity      String   // low, medium, high, critical
+  
+  // Alert content
+  title         String
+  description   String   @db.Text
+  changes       Json?    // What changed specifically
+  
+  // Actions
+  read          Boolean  @default(false)
+  actioned      Boolean  @default(false)
+  
+  // Relations
+  workspace     Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  competitor    Competitor? @relation(fields: [competitorId], references: [id])
+  
+  createdAt     DateTime   @default(now())
+  
+  @@map("alerts")
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  workspaceId String
+  agentId   String
+  role      String   // user, assistant
+  content   String   @db.Text
+  metadata  Json?    // { taskId, analysisId, alertId, requiresApproval: boolean }
+  
+  createdAt DateTime @default(now())
+  
+  @@map("conversations")
+}
