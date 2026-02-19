@@ -1,162 +1,142 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Foundry</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: white; font-family: system-ui; padding: 20px; }
-    h1 { font-size: 28px; margin-bottom: 20px; }
-    .box { background: #18181b; border: 1px solid #27272a; padding: 20px; border-radius: 12px; margin-bottom: 16px; }
-    input { width: 100%; padding: 16px; background: #0a0a0f; border: 1px solid #3f3f46; color: white; border-radius: 10px; font-size: 16px; margin-bottom: 12px; }
-    button { width: 100%; padding: 16px; background: #4f46e5; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; }
-    button:disabled { background: #3f3f46; }
-    .msg { padding: 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
-    .success { background: #064e3b; border: 1px solid #10b981; color: #10b981; }
-    .error { background: #7f1d1d; border: 1px solid #ef4444; color: #ef4444; }
-    .pending { background: #292524; border: 1px solid #f59e0b; padding: 16px; border-radius: 10px; margin-bottom: 12px; }
-    .competitor { background: #18181b; border: 1px solid #27272a; padding: 16px; border-radius: 10px; margin-bottom: 8px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foundry</title>
+<style>
+body{background:#0a0a0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:20px;max-width:500px;margin:0 auto}
+h1{font-size:28px;margin-bottom:8px}
+.sub{color:#6b7280;font-size:14px;margin-bottom:20px}
+.box{background:#18181b;border:1px solid #27272a;padding:20px;border-radius:12px;margin-bottom:16px}
+input,button{width:100%;padding:16px;border-radius:10px;font-size:16px;border:none;margin-bottom:12px}
+input{background:#0a0a0f;border:1px solid #3f3f46;color:#fff}
+button{background:#4f46e5;color:#fff;font-weight:600;cursor:pointer}
+button:active{opacity:0.8}
+.success{background:#064e3b;border:1px solid #10b981;color:#10b981;padding:16px;border-radius:10px;margin-bottom:16px}
+.error{background:#7f1d1d;border:1px solid #ef4444;color:#ef4444;padding:16px;border-radius:10px;margin-bottom:16px}
+.pending{background:#292524;border:1px solid #f59e0b;padding:16px;border-radius:10px;margin-bottom:12px}
+.comp{background:#18181b;border:1px solid #27272a;padding:16px;border-radius:10px;margin-bottom:8px}
+.comp h4{margin:0 0 4px}
+.comp a{color:#6b7280;font-size:13px;text-decoration:none}
+.badge{float:right;background:#3f3f46;padding:4px 10px;border-radius:4px;font-size:12px}
+</style>
 </head>
 <body>
-  <h1>🎯 Foundry</h1>
-  <div id="status"></div>
+<h1>🎯 Foundry</h1>
+<p class="sub">AI Co-Founder Platform</p>
+<div id="msg"></div>
+
+<div class="box">
+  <form id="form" onsubmit="handleSubmit(event)">
+    <input type="text" id="product" name="product" placeholder="What are you building? (e.g., CRM for dentists)" required>
+    <button type="submit" id="submitBtn">Discover Competitors</button>
+  </form>
+</div>
+
+<div id="pending"></div>
+<div id="comps"></div>
+
+<script>
+const API = 'https://foundry-production-7b5f.up.railway.app';
+
+function msg(txt, err) {
+  document.getElementById('msg').innerHTML = '<div class="' + (err ? 'error' : 'success') + '">' + txt + '</div>';
+}
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById('product');
+  const btn = document.getElementById('submitBtn');
   
-  <div class="box">
-    <input id="product" type="text" placeholder="What are you building? (e.g., CRM for dentists)">
-    <button id="btn" onclick="startDiscovery()">Discover Competitors</button>
-  </div>
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  msg('Sending...');
   
-  <div id="pendings"></div>
-  <div id="results"></div>
-
-  <script>
-    const API = 'https://foundry-production-7b5f.up.railway.app';
-    let myTasks = [];
-    let myCompetitors = [];
-
-    function showStatus(text, isError) {
-      const el = document.getElementById('status');
-      el.innerHTML = '<div class="msg ' + (isError ? 'error' : 'success') + '">' + text + '</div>';
+  try {
+    const res = await fetch(API + '/api/workspaces/demo/competitors/discover', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({productDescription: input.value})
+    });
+    
+    const data = await res.json();
+    console.log('Got:', data);
+    
+    if (data.taskId) {
+      msg('✅ Created! Approve below');
+      input.value = '';
+      load();
+    } else {
+      msg('❌ Server error', true);
     }
+  } catch(err) {
+    console.error(err);
+    msg('❌ Network error: ' + err.message, true);
+  }
+  
+  btn.disabled = false;
+  btn.textContent = 'Discover Competitors';
+}
 
-    async function startDiscovery() {
-      const input = document.getElementById('product');
-      const btn = document.getElementById('btn');
-      
-      if (!input.value.trim()) {
-        showStatus('Please enter a product description', true);
-        return;
-      }
-      
-      btn.disabled = true;
-      btn.textContent = 'Sending...';
-      showStatus('Sending request...');
-      
-      try {
-        const response = await fetch(API + '/api/workspaces/demo/competitors/discover', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ productDescription: input.value.trim() })
-        });
-        
-        const data = await response.json();
-        console.log('Response:', data);
-        
-        if (data.taskId) {
-          showStatus('✅ Created! Tap "Approve" below');
-          input.value = '';
-          loadData();
-        } else {
-          showStatus('❌ Failed: ' + JSON.stringify(data), true);
-        }
-      } catch (err) {
-        console.error(err);
-        showStatus('❌ Error: ' + err.message, true);
-      }
-      
-      btn.disabled = false;
-      btn.textContent = 'Discover Competitors';
+async function approve(id) {
+  document.getElementById('appr-' + id).disabled = true;
+  document.getElementById('appr-' + id).textContent = 'Running...';
+  
+  try {
+    const res = await fetch(API + '/api/tasks/' + id + '/approve', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({userId: 'founder'})
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      msg('✅ Found ' + data.competitorsFound + ' competitors!');
+      renderComps(data.competitors || []);
+      load();
     }
+  } catch(err) {
+    msg('❌ Error', true);
+  }
+}
 
-    async function approveTask(taskId) {
-      const btn = document.getElementById('btn-' + taskId);
-      btn.disabled = true;
-      btn.textContent = 'Running...';
-      
-      try {
-        const response = await fetch(API + '/api/tasks/' + taskId + '/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: 'founder-1' })
-        });
-        
-        const data = await response.json();
-        console.log('Approve response:', data);
-        
-        if (data.success) {
-          showStatus('✅ Found ' + data.competitorsFound + ' competitors!');
-          myCompetitors = data.competitors || [];
-          render();
-        } else {
-          showStatus('❌ Failed', true);
-          btn.disabled = false;
-          btn.textContent = 'Approve & Run';
-        }
-      } catch (err) {
-        showStatus('❌ Error', true);
-        btn.disabled = false;
-        btn.textContent = 'Approve & Run';
-      }
-    }
+async function load() {
+  try {
+    const res = await fetch(API + '/api/workspaces/demo');
+    const data = await res.json();
+    renderPending(data.tasks || []);
+    renderComps(data.competitors || []);
+  } catch(err) {
+    console.error('Load error:', err);
+  }
+}
 
-    async function loadData() {
-      try {
-        const response = await fetch(API + '/api/workspaces/demo');
-        const data = await response.json();
-        myTasks = data.tasks || [];
-        myCompetitors = data.competitors || [];
-        render();
-      } catch (err) {
-        console.error('Load error:', err);
-      }
-    }
+function renderPending(tasks) {
+  const pending = tasks.filter(t => t.status === 'pending' && t.requiresApproval);
+  let html = '';
+  if (pending.length) {
+    html = '<h3 style="color:#f59e0b;margin:20px 0 12px">Pending</h3>';
+    pending.forEach(t => {
+      html += '<div class="pending"><p style="margin-bottom:12px">' + t.approvalPrompt + '</p><button id="appr-' + t.id + '" onclick="approve(\'' + t.id + '\')" style="background:#059669">Approve & Run</button></div>';
+    });
+  }
+  document.getElementById('pending').innerHTML = html;
+}
 
-    function render() {
-      // Show pending tasks
-      const pending = myTasks.filter(t => t.status === 'pending' && t.requiresApproval);
-      let pendingHtml = '';
-      
-      if (pending.length > 0) {
-        pendingHtml = '<h3 style="color:#f59e0b;margin:20px 0 12px;">Pending Approval</h3>';
-        pending.forEach(t => {
-          pendingHtml += '<div class="pending">' +
-            '<p style="margin-bottom:12px;">' + t.approvalPrompt + '</p>' +
-            '<button id="btn-' + t.id + '" onclick="approveTask(\'' + t.id + '\')" style="background:#059669;">Approve & Run</button>' +
-          '</div>';
-        });
-      }
-      document.getElementById('pendings').innerHTML = pendingHtml;
-      
-      // Show competitors
-      let compHtml = '';
-      if (myCompetitors.length > 0) {
-        compHtml = '<h3 style="color:#10b981;margin:20px 0 12px;">Competitors (' + myCompetitors.length + ')</h3>';
-        myCompetitors.forEach(c => {
-          compHtml += '<div class="competitor">' +
-            '<div style="font-weight:600;margin-bottom:4px;">' + c.name + '</div>' +
-            '<a href="' + c.website + '" target="_blank" style="color:#6b7280;font-size:14px;">' + c.website + '</a>' +
-            '<span style="float:right;background:#3f3f46;padding:4px 12px;border-radius:4px;font-size:12px;">' + c.threatLevel + '</span>' +
-          '</div>';
-        });
-      }
-      document.getElementById('results').innerHTML = compHtml;
-    }
+function renderComps(comps) {
+  let html = '';
+  if (comps.length) {
+    html = '<h3 style="color:#10b981;margin:20px 0 12px">Competitors (' + comps.length + ')</h3>';
+    comps.forEach(c => {
+      html += '<div class="comp"><span class="badge">' + c.threatLevel + '</span><h4>' + c.name + '</h4><a href="' + c.website + '" target="_blank">' + c.website + '</a></div>';
+    });
+  }
+  document.getElementById('comps').innerHTML = html;
+}
 
-    // Load on start and every 3 seconds
-    loadData();
-    setInterval(loadData, 3000);
-  </script>
+load();
+setInterval(load, 3000);
+</script>
 </body>
 </html>
