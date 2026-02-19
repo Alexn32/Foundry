@@ -2,6 +2,7 @@ const fastify = require('fastify')({ logger: true });
 const cors = require('@fastify/cors');
 const websocket = require('@fastify/websocket');
 const Anthropic = require('@anthropic-ai/sdk');
+const FounderOnboarding = require('./lib/onboarding');
 
 // Check for Anthropic API key
 if (!process.env.ANTHROPIC_API_KEY) {
@@ -13,6 +14,9 @@ if (!process.env.ANTHROPIC_API_KEY) {
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Initialize onboarding system
+const onboarding = new FounderOnboarding(anthropic);
 
 // In-memory storage
 const storage = {
@@ -301,6 +305,105 @@ fastify.post('/api/respond', async (request, reply) => {
   });
   
   return { success: true, message };
+});
+
+// ============ ONBOARDING ROUTES ============
+
+// Start onboarding
+fastify.post('/api/onboarding/start', async (request, reply) => {
+  const { founderId, workspaceId } = request.body;
+  
+  try {
+    const result = await onboarding.startOnboarding(founderId, workspaceId);
+    return result;
+  } catch (error) {
+    console.error('Onboarding start error:', error);
+    return reply.status(500).send({ error: error.message });
+  }
+});
+
+// Process answer and get next question
+fastify.post('/api/onboarding/answer', async (request, reply) => {
+  const { founderId, answer, files } = request.body;
+  
+  try {
+    const result = await onboarding.processAnswer(founderId, answer, files);
+    return result;
+  } catch (error) {
+    console.error('Onboarding answer error:', error);
+    return reply.status(500).send({ error: error.message });
+  }
+});
+
+// Confirm or edit summary
+fastify.post('/api/onboarding/confirm', async (request, reply) => {
+  const { founderId, confirmation } = request.body;
+  
+  try {
+    const result = await onboarding.confirmSummary(founderId, confirmation);
+    return result;
+  } catch (error) {
+    console.error('Onboarding confirm error:', error);
+    return reply.status(500).send({ error: error.message });
+  }
+});
+
+// Upload files during onboarding
+fastify.post('/api/onboarding/upload', async (request, reply) => {
+  const { founderId, files } = request.body;
+  
+  try {
+    const state = await onboarding.getOnboardingState(founderId);
+    if (!state) {
+      return reply.status(404).send({ error: 'Onboarding not found' });
+    }
+    
+    // Process uploaded files
+    for (const file of files) {
+      state.uploadedFiles.push({
+        id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        category: onboarding.categorizeFile(file),
+        uploadedAt: new Date().toISOString(),
+        processed: false
+      });
+    }
+    
+    await onboarding.saveOnboardingState(state);
+    
+    return { 
+      success: true, 
+      message: `Uploaded ${files.length} file(s). I'll analyze these and factor them into your profile.`,
+      files: state.uploadedFiles 
+    };
+  } catch (error) {
+    console.error('File upload error:', error);
+    return reply.status(500).send({ error: error.message });
+  }
+});
+
+// Get founder profile
+fastify.get('/api/founders/:founderId/profile', async (request, reply) => {
+  const { founderId } = request.params;
+  
+  // In production, fetch from database
+  // For now, check if onboarding is complete
+  const state = await onboarding.getOnboardingState(founderId);
+  
+  if (!state || state.status !== 'completed') {
+    return reply.status(404).send({ error: 'Profile not found or onboarding incomplete' });
+  }
+  
+  return {
+    founderId: state.founderId,
+    workspaceId: state.workspaceId,
+    business: state.answers,
+    summary: state.summary?.data,
+    files: state.uploadedFiles,
+    agentContext: state.agentContext
+  };
 });
 
 // WebSocket
