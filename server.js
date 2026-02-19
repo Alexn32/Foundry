@@ -1,11 +1,13 @@
 const fastify = require('fastify')({ logger: true });
 const cors = require('@fastify/cors');
-const websocket = require('@fastify/websocket');
 const Anthropic = require('@anthropic-ai/sdk');
 
-// Check for Anthropic API key
+// Load env
+require('dotenv').config();
+
+// Validate API key
 if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('❌ ANTHROPIC_API_KEY not set!');
+  console.error('❌ ANTHROPIC_API_KEY required');
   process.exit(1);
 }
 
@@ -13,79 +15,33 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// In-memory storage
+// In-memory storage (use DB in production)
 const storage = {
   messages: [],
   tasks: [],
   competitors: [],
-  workspaces: [{ id: 'demo-workspace', name: 'Demo Workspace', ownerId: 'founder-1', createdAt: new Date() }]
+  workspaces: [{ id: 'demo', name: 'Demo', ownerId: 'founder-1' }]
 };
 
-const clients = new Set();
-
-// Register plugins
+// Register CORS
 fastify.register(cors, { 
-  origin: ['https://foundry-nine-pi.vercel.app', 'https://*.vercel.app', 'http://localhost:3000'],
+  origin: ['https://foundry-nine-pi.vercel.app', 'http://localhost:3000'],
   credentials: true
 });
-fastify.register(websocket);
 
 // Health check
-fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+fastify.get('/health', async () => ({ 
+  status: 'ok', 
+  timestamp: new Date().toISOString() 
+}));
 
-// Competitor Intelligence Agent using Claude
-async function discoverCompetitors(productDescription) {
-  const prompt = `Identify the top 10 most relevant competitors for this product:
-"${productDescription}"
-
-For each competitor, provide:
-1. Company name
-2. Website URL
-3. One-sentence description
-4. Pricing model
-5. Key differentiator
-
-Return ONLY a JSON array.`;
-
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 2000,
-      temperature: 0.7,
-      messages: [{ role: 'user', content: prompt }]
-    });
-
-    const content = message.content[0].text;
-    
-    // Try to parse JSON
-    try {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-      return JSON.parse(content);
-    } catch (e) {
-      // Return placeholder if parsing fails
-      return [
-        { name: 'Competitor 1', website: 'https://example1.com', description: 'Sample competitor', pricing: 'Unknown', differentiator: 'TBD' },
-        { name: 'Competitor 2', website: 'https://example2.com', description: 'Sample competitor', pricing: 'Unknown', differentiator: 'TBD' }
-      ];
-    }
-  } catch (error) {
-    console.error('Claude API error:', error);
-    throw new Error('Failed to discover competitors');
-  }
-}
-
-// API Routes
-
-// Get workspace
+// Get workspace data
 fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
   const { workspaceId } = request.params;
   const workspace = storage.workspaces.find(w => w.id === workspaceId);
   
   if (!workspace) {
-    return reply.status(404).send({ error: 'Workspace not found' });
+    return reply.status(404).send({ error: 'Not found' });
   }
   
   return {
@@ -98,23 +54,14 @@ fastify.get('/api/workspaces/:workspaceId', async (request, reply) => {
 // Get messages
 fastify.get('/api/chat', async () => ({ messages: storage.messages }));
 
-// Discover competitors
+// Discover competitors using Claude
 fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request, reply) => {
   const { workspaceId } = request.params;
   const { productDescription } = request.body;
   
   if (!productDescription) {
-    return reply.status(400).send({ error: 'Product description required' });
+    return reply.status(400).send({ error: 'Description required' });
   }
-  
-  // Create user message
-  const userMessage = {
-    id: Date.now().toString(),
-    role: 'user',
-    content: productDescription,
-    timestamp: new Date().toISOString(),
-  };
-  storage.messages.push(userMessage);
   
   // Create task
   const task = {
@@ -125,131 +72,74 @@ fastify.post('/api/workspaces/:workspaceId/competitors/discover', async (request
     status: 'pending',
     input: { productDescription },
     requiresApproval: true,
-    approvalPrompt: `I'll identify the top 10 competitors for: "${productDescription}". Ready?`,
+    approvalPrompt: `Find competitors for: "${productDescription}"?`,
     createdAt: new Date().toISOString(),
   };
   storage.tasks.push(task);
   
-  // Broadcast to clients
-  clients.forEach(client => {
-    if (client.readyState === 1) {
-      client.send(JSON.stringify({ type: 'task_created', data: task }));
-    }
-  });
-  
-  return { taskId: task.id, message: userMessage };
+  return { taskId: task.id, status: 'pending_approval' };
 });
 
-// Approve task
+// Approve and execute task
 fastify.post('/api/tasks/:taskId/approve', async (request, reply) => {
   const { taskId } = request.params;
-  const { userId } = request.body;
-  
   const task = storage.tasks.find(t => t.id === taskId);
+  
   if (!task) {
     return reply.status(404).send({ error: 'Task not found' });
   }
   
   task.status = 'in_progress';
-  task.approvedAt = new Date().toISOString();
-  task.approvedBy = userId;
   
-  // Execute task
-  if (task.type === 'discover_competitors') {
+  try {
+    // Call Claude
+    const message = await anthropic.messages.create({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `List 5 competitors for this product: "${task.input.productDescription}". Return JSON array with name, website, description.`
+      }]
+    });
+    
+    const content = message.content[0].text;
+    let competitors = [];
+    
+    // Parse JSON
     try {
-      const competitors = await discoverCompetitors(task.input.productDescription);
-      
-      // Store competitors
-      for (const comp of competitors.slice(0, 10)) {
-        storage.competitors.push({
-          id: `comp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          workspaceId: task.workspaceId,
-          name: comp.name || 'Unknown',
-          website: comp.website || 'https://example.com',
-          description: comp.description || 'Competitor',
-          threatLevel: 'medium',
-          createdAt: new Date().toISOString(),
-        });
-      }
-      
-      task.status = 'completed';
-      task.output = { competitorsDiscovered: competitors.length };
-      
-      // Add AI response
-      const aiMessage = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        agentId: 'competitor-intelligence',
-        content: `I discovered ${competitors.length} competitors for your product.`,
-        timestamp: new Date().toISOString(),
-      };
-      storage.messages.push(aiMessage);
-      
-      // Broadcast
-      clients.forEach(client => {
-        if (client.readyState === 1) {
-          client.send(JSON.stringify({ 
-            type: 'competitors_discovered', 
-            data: { taskId, competitors, message: aiMessage } 
-          }));
-        }
+      const match = content.match(/\[[\s\S]*\]/);
+      competitors = match ? JSON.parse(match[0]) : [];
+    } catch (e) {
+      competitors = [{ name: 'Sample', website: 'https://example.com', description: 'Competitor' }];
+    }
+    
+    // Store competitors
+    for (const comp of competitors.slice(0, 5)) {
+      storage.competitors.push({
+        id: `comp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        workspaceId: task.workspaceId,
+        name: comp.name || 'Unknown',
+        website: comp.website || 'https://example.com',
+        description: comp.description || 'Competitor',
+        threatLevel: 'medium',
+        createdAt: new Date().toISOString(),
       });
-      
-      return { success: true, competitorsDiscovered: competitors.length };
-      
-    } catch (error) {
-      task.status = 'failed';
-      task.output = { error: error.message };
-      return reply.status(500).send({ error: error.message });
     }
+    
+    task.status = 'completed';
+    task.output = { competitorsFound: competitors.length };
+    
+    return { 
+      success: true, 
+      competitorsFound: competitors.length,
+      competitors: storage.competitors.slice(-5)
+    };
+    
+  } catch (error) {
+    console.error('Claude error:', error);
+    task.status = 'failed';
+    return reply.status(500).send({ error: error.message });
   }
-  
-  return { success: true };
-});
-
-// Clyde responds
-fastify.post('/api/respond', async (request, reply) => {
-  const { content } = request.body;
-  
-  const message = {
-    id: Date.now().toString(),
-    role: 'assistant',
-    agentId: 'clyde',
-    content,
-    timestamp: new Date().toISOString(),
-  };
-  
-  storage.messages.push(message);
-  
-  clients.forEach(client => {
-    if (client.readyState === 1) {
-      client.send(JSON.stringify({ type: 'message', data: message }));
-    }
-  });
-  
-  return { success: true, message };
-});
-
-// WebSocket
-fastify.register(async function (fastify) {
-  fastify.get('/ws', { websocket: true }, (connection, req) => {
-    clients.add(connection.socket);
-    
-    connection.socket.on('message', async (message) => {
-      try {
-        const data = JSON.parse(message);
-        if (data.type === 'subscribe' && data.workspaceId) {
-          connection.socket.workspaceId = data.workspaceId;
-        }
-      } catch (e) {
-        console.error('WebSocket message error:', e);
-      }
-    });
-    
-    connection.socket.on('close', () => {
-      clients.delete(connection.socket);
-    });
-  });
 });
 
 // Start server
@@ -259,5 +149,5 @@ fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
     console.error(err);
     process.exit(1);
   }
-  console.log(`🚀 Foundry backend running on port ${PORT}`);
+  console.log(`🚀 Foundry API running on port ${PORT}`);
 });
