@@ -1,25 +1,25 @@
 {
-  "name": "foundry-backend",
+  "name": "foundry-frontend",
   "version": "0.1.0",
-  "description": "Foundry API server",
-  "main": "server.js",
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "private": true,
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.3",
-    "@fastify/cors": "^8.5.0",
-    "@fastify/websocket": "^8.2.0",
-    "@prisma/client": "^5.22.0",
-    "dotenv": "^16.4.5",
-    "fastify": "^4.28.1",
-    "prisma": "^5.22.0"
+    "lucide-react": "^0.460.0",
+    "next": "14.2.18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
   }
 }
