@@ -106,13 +106,21 @@
 
     async function fetchData() {
       try {
+        console.log('Fetching data...');
         const res = await fetch(`${API_URL}/api/workspaces/demo`);
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log('Data received:', data);
         tasks = data.tasks || [];
         competitors = data.competitors || [];
         render();
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Fetch error:', error);
+        showMessage('❌ Cannot connect to backend: ' + error.message);
       }
     }
 
@@ -120,26 +128,39 @@
       const input = document.getElementById('productInput');
       const btn = document.getElementById('discoverBtn');
       
-      if (!input.value.trim()) return;
+      if (!input.value.trim()) {
+        showMessage('Please enter a product description');
+        return;
+      }
       
       btn.disabled = true;
       btn.textContent = 'Creating task...';
       
       try {
+        console.log('Sending request...');
         const res = await fetch(`${API_URL}/api/workspaces/demo/competitors/discover`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ productDescription: input.value })
         });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log('Response:', data);
         
         if (data.taskId) {
-          showMessage('Task created! Click "Approve & Run" below.');
+          showMessage('✅ Task created! Click "Approve & Run" below.');
           input.value = '';
           await fetchData();
+        } else {
+          showMessage('❌ Error: No task created');
         }
       } catch (error) {
-        showMessage('Error: ' + error.message);
+        console.error('Error:', error);
+        showMessage('❌ Error: ' + error.message);
       }
       
       btn.disabled = false;
