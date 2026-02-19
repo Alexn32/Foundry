@@ -24,9 +24,11 @@ const config = {
       apiKey: process.env.OPENAI_API_KEY,
     },
     models: {
-      onboarding: process.env.ONBOARDING_MODEL || 'claude-3-sonnet-20240229',
+      onboarding: process.env.ONBOARDING_MODEL || 'claude-3-haiku-20240307',
+      followUp: process.env.FOLLOW_UP_MODEL || 'claude-3-haiku-20240307',
+      summary: process.env.SUMMARY_MODEL || 'claude-3-sonnet-20240229',
       analysis: process.env.ANALYSIS_MODEL || 'claude-3-sonnet-20240229',
-      code: process.env.CODE_MODEL || 'claude-3-sonnet-20240229',
+      code: process.env.CODE_MODEL || 'claude-3-haiku-20240307',
     }
   },
   
